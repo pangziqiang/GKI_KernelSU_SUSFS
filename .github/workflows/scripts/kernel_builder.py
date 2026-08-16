@@ -326,6 +326,54 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             p = zram_patch_dir / patch
             if p.exists():
                 self._run_cmd(f"patch -p1 -F 3 < {p}", check=False)
+        self._ensure_zram_wiring()
+
+    def _ensure_zram_wiring(self):
+        """补丁失败时兜底接线：确保 LZ4K/LZ4KD/LZ4K_OPLUS 的 Kconfig/Makefile 条目存在。"""
+        common_dir = self.work_dir / "common"
+
+        lib_kconfig = common_dir / "lib/Kconfig"
+        if lib_kconfig.exists():
+            content = lib_kconfig.read_text()
+            changed = False
+            if "config LZ4K_COMPRESS" not in content:
+                content += "\nconfig LZ4K_COMPRESS\n\ttristate\n\nconfig LZ4K_DECOMPRESS\n\ttristate\n\nconfig LZ4KD_COMPRESS\n\ttristate\n\nconfig LZ4KD_DECOMPRESS\n\ttristate\n"
+                changed = True
+            if (common_dir / "lib/lz4k_oplus").exists() and "lz4k_oplus/Kconfig" not in content:
+                lines = content.splitlines()
+                insert_at = 1 if lines else 0
+                lines.insert(insert_at, 'source "lib/lz4k_oplus/Kconfig"')
+                content = "\n".join(lines) + "\n"
+                changed = True
+            if changed:
+                lib_kconfig.write_text(content)
+
+        lib_makefile = common_dir / "lib/Makefile"
+        if lib_makefile.exists():
+            content = lib_makefile.read_text()
+            changed = False
+            if "CONFIG_LZ4K_COMPRESS" not in content:
+                content += "\nobj-$(CONFIG_LZ4K_COMPRESS) += lz4k/\nobj-$(CONFIG_LZ4K_DECOMPRESS) += lz4k/\nobj-$(CONFIG_LZ4KD_COMPRESS) += lz4kd/\nobj-$(CONFIG_LZ4KD_DECOMPRESS) += lz4kd/\n"
+                changed = True
+            if (common_dir / "lib/lz4k_oplus").exists() and "lz4k_oplus/" not in content:
+                content += "\nobj-y += lz4k_oplus/\n"
+                changed = True
+            if changed:
+                lib_makefile.write_text(content)
+
+        crypto_kconfig = common_dir / "crypto/Kconfig"
+        if crypto_kconfig.exists():
+            content = crypto_kconfig.read_text()
+            if "config CRYPTO_LZ4K" not in content:
+                content += "\nconfig CRYPTO_LZ4K\n\ttristate \"LZ4K compression algorithm\"\n\tselect CRYPTO_ALGAPI\n\tselect LZ4K_COMPRESS\n\tselect LZ4K_DECOMPRESS\n\thelp\n\t  This is the LZ4K algorithm.\n\nconfig CRYPTO_LZ4KD\n\ttristate \"LZ4KD compression algorithm\"\n\tselect CRYPTO_ALGAPI\n\tselect LZ4KD_COMPRESS\n\tselect LZ4KD_DECOMPRESS\n\thelp\n\t  This is the LZ4KD algorithm.\n"
+                crypto_kconfig.write_text(content)
+
+        crypto_makefile = common_dir / "crypto/Makefile"
+        if crypto_makefile.exists():
+            content = crypto_makefile.read_text()
+            if "CONFIG_CRYPTO_LZ4K" not in content:
+                content += "\nobj-$(CONFIG_CRYPTO_LZ4K) += lz4k.o\nobj-$(CONFIG_CRYPTO_LZ4KD) += lz4kd.o\n"
+                crypto_makefile.write_text(content)
 
     def apply_task_mmu_fixes(self):
         logger.info("=== 应用 task_mmu.c 修复 ===")
