@@ -352,6 +352,12 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
                 with open(task_mmu, "w") as f:
                     f.write(content)
 
+        # SUSFS open_redirect 补丁引入的 dentry 可能未初始化，触发 -Werror
+        if "struct dentry *dentry;" in content:
+            content = content.replace("struct dentry *dentry;", "struct dentry *dentry = NULL;")
+            with open(task_mmu, "w") as f:
+                f.write(content)
+
     def _fix_base_c_header(self):
         base_c = self.work_dir / "common/fs/proc/base.c"
         if not base_c.exists():
